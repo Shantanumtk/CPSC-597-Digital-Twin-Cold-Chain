@@ -1,0 +1,33 @@
+# =============================================================================
+# Cold Chain Digital Twin - Terraform Variables (Example)
+# =============================================================================
+# Copy this file to terraform.tfvars and customize for your environment
+# =============================================================================
+
+# AWS Region
+aws_region = "us-west-2"
+
+# Project Configuration
+project_name = "coldchain-digital-twin"
+environment  = "dev"
+
+# VPC Configuration
+vpc_cidr             = "10.0.0.0/16"
+availability_zones   = ["us-west-2a", "us-west-2b"]
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+
+# MQTT Broker Configuration
+mqtt_instance_type   = "t3.small"    # t3.micro for minimal cost
+mqtt_broker_port     = 1883
+mqtt_broker_tls_port = 8883
+mqtt_websocket_port  = 9001
+
+# Tags
+common_tags = {
+  Project    = "ColdChain-Digital-Twin"
+  Course     = "CPSC-589"
+  University = "CSUF"
+  ManagedBy  = "Terraform"
+  Owner      = "Shantanu Mitkari"
+}
