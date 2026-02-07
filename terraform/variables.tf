@@ -106,3 +106,37 @@ variable "common_tags" {
     ManagedBy   = "Terraform"
   }
 }
+
+# -----------------------------------------------------------------------------
+# EKS Configuration (Phase 2)
+# -----------------------------------------------------------------------------
+
+variable "eks_cluster_version" {
+  description = "Kubernetes version for EKS cluster"
+  type        = string
+  default     = "1.35"
+}
+
+variable "eks_node_instance_type" {
+  description = "EC2 instance type for EKS nodes"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "eks_node_desired_size" {
+  description = "Desired number of EKS nodes"
+  type        = number
+  default     = 2
+}
+
+variable "eks_node_min_size" {
+  description = "Minimum number of EKS nodes"
+  type        = number
+  default     = 1
+}
+
+variable "eks_node_max_size" {
+  description = "Maximum number of EKS nodes"
+  type        = number
+  default     = 3
+}

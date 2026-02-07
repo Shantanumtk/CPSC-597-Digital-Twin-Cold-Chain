@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mqtt-kafka-bridge
+  namespace: coldchain
+  labels:
+    app: mqtt-kafka-bridge
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: health
+  selector:
+    app: mqtt-kafka-bridge

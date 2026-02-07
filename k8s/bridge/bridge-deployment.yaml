@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mqtt-kafka-bridge
+  namespace: coldchain
+  labels:
+    app: mqtt-kafka-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mqtt-kafka-bridge
+  template:
+    metadata:
+      labels:
+        app: mqtt-kafka-bridge
+    spec:
+      containers:
+        - name: bridge
+          image: 443071119316.dkr.ecr.us-west-2.amazonaws.com/coldchain-digital-twin-bridge:latest
+          env:
+            - name: MQTT_BROKER
+              valueFrom:
+                configMapKeyRef:
+                  name: bridge-config
+                  key: MQTT_BROKER
+            - name: MQTT_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: bridge-config
+                  key: MQTT_PORT
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: bridge-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: KAFKA_TOPIC_TRUCKS
+              valueFrom:
+                configMapKeyRef:
+                  name: bridge-config
+                  key: KAFKA_TOPIC_TRUCKS
+            - name: KAFKA_TOPIC_ROOMS
+              valueFrom:
+                configMapKeyRef:
+                  name: bridge-config
+                  key: KAFKA_TOPIC_ROOMS
+            - name: KAFKA_TOPIC_ALERTS
+              valueFrom:
+                configMapKeyRef:
+                  name: bridge-config
+                  key: KAFKA_TOPIC_ALERTS
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      restartPolicy: Always
