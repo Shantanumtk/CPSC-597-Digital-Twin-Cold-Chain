@@ -108,3 +108,22 @@ output "next_steps" {
     
   EOT
 }
+
+# -----------------------------------------------------------------------------
+# MongoDB Outputs (Phase 3)
+# -----------------------------------------------------------------------------
+
+output "mongodb_private_ip" {
+  description = "Private IP of MongoDB instance"
+  value       = aws_instance.mongodb.private_ip
+}
+
+output "mongodb_instance_id" {
+  description = "Instance ID of MongoDB"
+  value       = aws_instance.mongodb.id
+}
+
+output "mongodb_connection_string" {
+  description = "MongoDB connection string for apps"
+  value       = "mongodb://${aws_instance.mongodb.private_ip}:27017/${var.mongodb_database_name}"
+}

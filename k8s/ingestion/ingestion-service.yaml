@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-consumer
+  namespace: coldchain
+  labels:
+    app: kafka-consumer
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: health
+  selector:
+    app: kafka-consumer

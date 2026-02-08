@@ -140,3 +140,25 @@ variable "eks_node_max_size" {
   type        = number
   default     = 3
 }
+
+# -----------------------------------------------------------------------------
+# MongoDB Configuration (Phase 3)
+# -----------------------------------------------------------------------------
+
+variable "mongodb_instance_type" {
+  description = "EC2 instance type for MongoDB"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "mongodb_database_name" {
+  description = "MongoDB database name"
+  type        = string
+  default     = "coldchain"
+}
+
+variable "key_pair_name" {
+  description = "EC2 Key Pair name for SSH access"
+  type        = string
+  default     = "cpsc-597-key"
+}

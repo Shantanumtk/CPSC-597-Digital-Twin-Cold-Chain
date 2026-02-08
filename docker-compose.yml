@@ -8,9 +8,9 @@ services:
       - MQTT_BROKER=host.docker.internal
       - MQTT_PORT=1883
       - MQTT_QOS=1
-      - PUBLISH_INTERVAL=10.0
-      - NUM_COLD_ROOMS=100
-      - NUM_TRUCKS=120
+      - PUBLISH_INTERVAL=30.0
+      - NUM_COLD_ROOMS=10
+      - NUM_TRUCKS=15
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

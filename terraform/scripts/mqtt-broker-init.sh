@@ -63,17 +63,7 @@ sed -i 's/MQTT_BROKER=host.docker.internal/MQTT_BROKER=localhost/' docker-compos
 docker build -t coldchain-sensor-simulator ./sensors
 
 # Run with docker compose using host network
-docker run -d \
-    --name coldchain-sensor-simulator \
-    -e MQTT_BROKER=localhost \
-    -e MQTT_PORT=1883 \
-    -e MQTT_QOS=1 \
-    -e PUBLISH_INTERVAL=5.0 \
-    -e NUM_COLD_ROOMS=100 \
-    -e NUM_TRUCKS=100 \
-    --network host \
-    --restart unless-stopped \
-    coldchain-sensor-simulator
+docker compose up -d --build
 
 # Set ownership for ubuntu user
 chown -R ubuntu:ubuntu /home/ubuntu/CPSC-597-Digital-Twin-Cold-Chain

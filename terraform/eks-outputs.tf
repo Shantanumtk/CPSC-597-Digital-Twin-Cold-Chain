@@ -32,3 +32,9 @@ output "ecr_repository_url" {
   description = "ECR repository URL for bridge image"
   value       = aws_ecr_repository.bridge.repository_url
 }
+
+output "ecr_ingestion_url" {
+  description = "ECR repository URL for ingestion image"
+  value       = aws_ecr_repository.ingestion.repository_url
+}
+
