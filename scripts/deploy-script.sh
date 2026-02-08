@@ -27,7 +27,7 @@ echo -e "${NC}"
 # -----------------------------------------------------------------------------
 # Step 1: Terraform Apply
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[1/7] Deploying Infrastructure with Terraform...${NC}"
+echo -e "${YELLOW}[1/9] Deploying Infrastructure with Terraform...${NC}"
 
 cd "$PROJECT_DIR/terraform"
 terraform init
@@ -38,19 +38,18 @@ MQTT_IP=$(terraform output -raw mqtt_broker_public_ip)
 MONGODB_IP=$(terraform output -raw mongodb_private_ip)
 ECR_BRIDGE_URL=$(terraform output -raw ecr_repository_url)
 ECR_INGESTION_URL=$(terraform output -raw ecr_ingestion_url)
+ECR_STATE_ENGINE_URL=$(terraform output -raw ecr_state_engine_url)
 EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
 
 echo -e "${GREEN}✓ Terraform complete${NC}"
 echo "  MQTT IP: $MQTT_IP"
 echo "  MongoDB IP: $MONGODB_IP"
-echo "  ECR Bridge URL: $ECR_BRIDGE_URL"
-echo "  ECR Ingestion URL: $ECR_INGESTION_URL"
 echo "  EKS Cluster: $EKS_CLUSTER_NAME"
 
 # -----------------------------------------------------------------------------
 # Step 2: Wait for EC2 instances to initialize
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[2/7] Waiting for EC2 instances to initialize...${NC}"
+echo -e "${YELLOW}[2/9] Waiting for EC2 instances to initialize...${NC}"
 
 sleep 90
 
@@ -59,7 +58,7 @@ echo -e "${GREEN}✓ EC2 initialization complete${NC}"
 # -----------------------------------------------------------------------------
 # Step 3: Build and Push Bridge Image to ECR
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[3/7] Building and pushing Bridge image to ECR...${NC}"
+echo -e "${YELLOW}[3/9] Building and pushing Bridge image to ECR...${NC}"
 
 cd "$PROJECT_DIR/bridge"
 
@@ -74,7 +73,7 @@ echo -e "${GREEN}✓ Bridge image pushed to ECR${NC}"
 # -----------------------------------------------------------------------------
 # Step 4: Build and Push Ingestion Image to ECR
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[4/7] Building and pushing Ingestion image to ECR...${NC}"
+echo -e "${YELLOW}[4/9] Building and pushing Ingestion image to ECR...${NC}"
 
 cd "$PROJECT_DIR/ingestion"
 
@@ -87,7 +86,7 @@ echo -e "${GREEN}✓ Ingestion image pushed to ECR${NC}"
 # -----------------------------------------------------------------------------
 # Step 5: Build and Push Kafka Image to ECR
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[5/7] Building and pushing Kafka image to ECR...${NC}"
+echo -e "${YELLOW}[5/9] Building and pushing Kafka image to ECR...${NC}"
 
 aws ecr create-repository --repository-name coldchain-kafka --region $AWS_REGION 2>/dev/null || true
 
@@ -98,9 +97,35 @@ docker push "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/coldchain-kafka:3
 echo -e "${GREEN}✓ Kafka image pushed to ECR${NC}"
 
 # -----------------------------------------------------------------------------
-# Step 6: Configure kubectl
+# Step 6: Build and Push Redis Image to ECR
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[6/7] Configuring kubectl for EKS...${NC}"
+echo -e "${YELLOW}[6/9] Building and pushing Redis image to ECR...${NC}"
+
+aws ecr create-repository --repository-name coldchain-redis --region $AWS_REGION 2>/dev/null || true
+
+docker pull --platform linux/amd64 redis:7-alpine
+docker tag redis:7-alpine "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/coldchain-redis:7-alpine"
+docker push "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/coldchain-redis:7-alpine"
+
+echo -e "${GREEN}✓ Redis image pushed to ECR${NC}"
+
+# -----------------------------------------------------------------------------
+# Step 7: Build and Push State Engine Image to ECR
+# -----------------------------------------------------------------------------
+echo -e "${YELLOW}[7/9] Building and pushing State Engine image to ECR...${NC}"
+
+cd "$PROJECT_DIR/state-engine"
+
+docker build --platform linux/amd64 -t coldchain-state-engine .
+docker tag coldchain-state-engine:latest "$ECR_STATE_ENGINE_URL:latest"
+docker push "$ECR_STATE_ENGINE_URL:latest"
+
+echo -e "${GREEN}✓ State Engine image pushed to ECR${NC}"
+
+# -----------------------------------------------------------------------------
+# Step 8: Configure kubectl
+# -----------------------------------------------------------------------------
+echo -e "${YELLOW}[8/9] Configuring kubectl for EKS...${NC}"
 
 aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
 
@@ -109,17 +134,16 @@ kubectl get nodes
 echo -e "${GREEN}✓ kubectl configured${NC}"
 
 # -----------------------------------------------------------------------------
-# Step 7: Deploy Kubernetes Resources
+# Step 9: Deploy Kubernetes Resources
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[7/7] Deploying Kubernetes resources...${NC}"
+echo -e "${YELLOW}[9/9] Deploying Kubernetes resources...${NC}"
 
 cd "$PROJECT_DIR"
 
-# Update bridge configmap with actual MQTT IP
+# Update configmaps with actual IPs
 sed -i.bak "s/MQTT_BROKER_IP_PLACEHOLDER/$MQTT_IP/" k8s/bridge/bridge-configmap.yaml
-
-# Update ingestion configmap with actual MongoDB URI
 sed -i.bak "s|MONGO_URI_PLACEHOLDER|mongodb://$MONGODB_IP:27017|" k8s/ingestion/ingestion-configmap.yaml
+sed -i.bak "s|MONGO_URI_PLACEHOLDER|mongodb://$MONGODB_IP:27017|" k8s/state-engine/state-engine-configmap.yaml
 
 # Apply namespace
 kubectl apply -f k8s/namespace.yaml
@@ -142,9 +166,22 @@ kubectl apply -f k8s/ingestion/
 echo "  Waiting for Ingestion to be ready..."
 kubectl wait --for=condition=ready pod -l app=kafka-consumer -n coldchain --timeout=120s
 
+# Apply Redis
+kubectl apply -f k8s/redis/
+
+echo "  Waiting for Redis to be ready..."
+kubectl wait --for=condition=ready pod -l app=redis -n coldchain --timeout=60s
+
+# Apply State Engine
+kubectl apply -f k8s/state-engine/
+
+echo "  Waiting for State Engine to be ready..."
+kubectl wait --for=condition=ready pod -l app=state-engine -n coldchain --timeout=120s
+
 # Restore original configmaps
 mv k8s/bridge/bridge-configmap.yaml.bak k8s/bridge/bridge-configmap.yaml
 mv k8s/ingestion/ingestion-configmap.yaml.bak k8s/ingestion/ingestion-configmap.yaml
+mv k8s/state-engine/state-engine-configmap.yaml.bak k8s/state-engine/state-engine-configmap.yaml
 
 echo -e "${GREEN}✓ Kubernetes resources deployed${NC}"
 
@@ -172,9 +209,18 @@ echo "  Name: $EKS_CLUSTER_NAME"
 echo "  Pods: kubectl get pods -n coldchain"
 
 echo ""
+echo -e "${BLUE}State Engine API:${NC}"
+API_URL=$(kubectl get svc -n coldchain state-engine -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+echo "  URL: http://$API_URL"
+echo "  Health: curl http://$API_URL/health"
+echo "  Stats: curl http://$API_URL/stats"
+echo "  Assets: curl http://$API_URL/assets"
+
+echo ""
 echo -e "${BLUE}Verify Data Flow:${NC}"
 echo "  Bridge logs: kubectl logs -n coldchain -l app=mqtt-kafka-bridge --tail=20"
 echo "  Consumer logs: kubectl logs -n coldchain -l app=kafka-consumer --tail=20"
+echo "  State Engine logs: kubectl logs -n coldchain -l app=state-engine --tail=20"
 
 echo ""
 echo -e "${GREEN}All systems running!${NC}"

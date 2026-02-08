@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: state-engine
+  namespace: coldchain
+  labels:
+    app: state-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: state-engine
+  template:
+    metadata:
+      labels:
+        app: state-engine
+    spec:
+      containers:
+        - name: state-engine
+          image: 443071119316.dkr.ecr.us-west-2.amazonaws.com/coldchain-digital-twin-state-engine:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: KAFKA_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: KAFKA_GROUP_ID
+            - name: KAFKA_TOPICS
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: KAFKA_TOPICS
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: REDIS_PORT
+            - name: MONGO_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: MONGO_URI
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: state-engine-config
+                  key: MONGO_DB
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10

@@ -111,3 +111,58 @@ resource "aws_ecr_lifecycle_policy" "kafka" {
     ]
   })
 }
+
+# -----------------------------------------------------------------------------
+# ECR Repository for State Engine (Phase 4)
+# -----------------------------------------------------------------------------
+
+resource "aws_ecr_repository" "state_engine" {
+  name                 = "${var.project_name}-state-engine"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-state-engine"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "state_engine" {
+  repository = aws_ecr_repository.state_engine.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 5 images"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 5
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
+# -----------------------------------------------------------------------------
+# ECR Repository for Redis (Phase 4)
+# -----------------------------------------------------------------------------
+
+resource "aws_ecr_repository" "redis" {
+  name                 = "coldchain-redis"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-redis"
+  }
+}

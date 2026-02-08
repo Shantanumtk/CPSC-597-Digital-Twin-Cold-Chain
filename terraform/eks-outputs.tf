@@ -38,3 +38,7 @@ output "ecr_ingestion_url" {
   value       = aws_ecr_repository.ingestion.repository_url
 }
 
+output "ecr_state_engine_url" {
+  description = "ECR repository URL for state engine image"
+  value       = aws_ecr_repository.state_engine.repository_url
+}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: state-engine
+  namespace: coldchain
+  labels:
+    app: state-engine
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+  selector:
+    app: state-engine
