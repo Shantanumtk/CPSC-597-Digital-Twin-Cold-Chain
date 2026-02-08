@@ -5,12 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: coldchain-sensor-simulator
     environment:
-      - MQTT_BROKER=host.docker.internal
+      - MQTT_BROKER=localhost
       - MQTT_PORT=1883
       - MQTT_QOS=1
-      - PUBLISH_INTERVAL=30.0
-      - NUM_COLD_ROOMS=10
-      - NUM_TRUCKS=15
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - PUBLISH_INTERVAL=5.0
+      - NUM_COLD_ROOMS=5
+      - NUM_TRUCKS=5
+    network_mode: host
     restart: unless-stopped

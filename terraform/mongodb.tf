@@ -19,6 +19,14 @@ resource "aws_security_group" "mongodb" {
     protocol        = "tcp"
     security_groups = [aws_security_group.eks_nodes.id]
   }
+  # MongoDB from EKS cluster (EKS-managed security group)
+  ingress {
+    description     = "MongoDB from EKS cluster"
+    from_port       = 27017
+    to_port         = 27017
+    protocol        = "tcp"
+    security_groups = [aws_eks_cluster.main.vpc_config[0].cluster_security_group_id]
+  }
 
   # MongoDB from MQTT broker (for testing)
   ingress {
@@ -115,3 +123,4 @@ resource "aws_instance" "mongodb" {
 
   depends_on = [aws_nat_gateway.main]
 }
+

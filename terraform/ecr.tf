@@ -75,7 +75,7 @@ resource "aws_ecr_lifecycle_policy" "ingestion" {
 }
 
 # -----------------------------------------------------------------------------
-# ECR Repository for Kafka (Phase 3)
+# ECR Repository for Kafka
 # -----------------------------------------------------------------------------
 
 resource "aws_ecr_repository" "kafka" {
