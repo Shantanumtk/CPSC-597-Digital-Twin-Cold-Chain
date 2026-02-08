@@ -166,3 +166,41 @@ resource "aws_ecr_repository" "redis" {
     Name = "${var.project_name}-redis"
   }
 }
+
+# -----------------------------------------------------------------------------
+# ECR Repository for Dashboard (Phase 6)
+# -----------------------------------------------------------------------------
+
+resource "aws_ecr_repository" "dashboard" {
+  name                 = "${var.project_name}-dashboard"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-dashboard"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "dashboard" {
+  repository = aws_ecr_repository.dashboard.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 5 images"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 5
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}

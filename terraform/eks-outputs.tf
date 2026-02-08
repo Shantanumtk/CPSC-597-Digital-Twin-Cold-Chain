@@ -42,3 +42,8 @@ output "ecr_state_engine_url" {
   description = "ECR repository URL for state engine image"
   value       = aws_ecr_repository.state_engine.repository_url
 }
+
+output "ecr_dashboard_url" {
+  description = "ECR repository URL for dashboard image"
+  value       = aws_ecr_repository.dashboard.repository_url
+}
