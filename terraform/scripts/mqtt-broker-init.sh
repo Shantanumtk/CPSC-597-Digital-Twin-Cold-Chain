@@ -57,7 +57,7 @@ git clone https://github.com/Shantanumtk/CPSC-597-Digital-Twin-Cold-Chain.git
 cd CPSC-597-Digital-Twin-Cold-Chain
 
 # Update docker-compose to use localhost for MQTT
-sed -i 's/MQTT_BROKER=host.docker.internal/MQTT_BROKER=localhost/' docker-compose.yml
+#sed -i 's/MQTT_BROKER=host.docker.internal/MQTT_BROKER=localhost/' docker-compose.yml
 
 # Build the sensor simulator image
 docker build -t coldchain-sensor-simulator ./sensors
