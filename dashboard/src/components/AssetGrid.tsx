@@ -7,6 +7,7 @@ interface AssetGridProps {
   assets: Asset[];
   onSelectAsset: (asset: Asset) => void;
   selectedAssetId?: string;
+  convertTemp?: (celsius: number | undefined) => string;
 }
 
 const stateColors = {
@@ -25,11 +26,12 @@ export default function AssetGrid({
   assets,
   onSelectAsset,
   selectedAssetId,
+  convertTemp = (c) => (c !== undefined ? `${c.toFixed(1)}°C` : '--'),
 }: AssetGridProps) {
   return (
     <div className="bg-white rounded-lg shadow p-4">
       <h2 className="text-lg font-semibold mb-4">Assets ({assets.length})</h2>
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto">
         {assets.map((asset) => (
           <div
@@ -51,9 +53,7 @@ export default function AssetGrid({
                 ) : (
                   <Warehouse className="w-5 h-5 text-gray-600 flex-shrink-0" />
                 )}
-                <span className="font-medium text-sm truncate">
-                  {asset.asset_id}
-                </span>
+                <span className="font-medium text-sm truncate">{asset.asset_id}</span>
               </div>
               <span
                 className={`px-2 py-1 rounded text-xs text-white font-medium flex-shrink-0 ${
@@ -68,7 +68,7 @@ export default function AssetGrid({
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                <span className="font-medium">{asset.temperature_c?.toFixed(1)}°C</span>
+                <span className="font-medium">{convertTemp(asset.temperature_c)}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Droplets className="w-4 h-4 text-cyan-500 flex-shrink-0" />

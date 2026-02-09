@@ -10,5 +10,5 @@ data:
   REDIS_HOST: "redis"
   REDIS_PORT: "6379"
   REDIS_DB: "0"
-  MONGO_URI: "MONGO_URI_PLACEHOLDER"
+  MONGO_URI: "mongodb://10.0.10.128:27017"
   MONGO_DB: "coldchain"

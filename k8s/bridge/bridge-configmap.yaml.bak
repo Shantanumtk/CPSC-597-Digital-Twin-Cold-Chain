@@ -4,7 +4,7 @@ metadata:
   name: bridge-config
   namespace: coldchain
 data:
-  MQTT_BROKER: "52.35.17.186"
+  MQTT_BROKER: "MQTT_BROKER_IP_PLACEHOLDER"
   MQTT_PORT: "1883"
   KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
   KAFKA_TOPIC_TRUCKS: "coldchain.telemetry.trucks"

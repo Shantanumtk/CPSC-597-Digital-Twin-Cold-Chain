@@ -18,9 +18,14 @@ import TemperatureChart from './TemperatureChart';
 interface AssetDetailProps {
   asset: Asset;
   onClose: () => void;
+  convertTemp?: (celsius: number | undefined) => string;
 }
 
-export default function AssetDetail({ asset, onClose }: AssetDetailProps) {
+export default function AssetDetail({
+  asset,
+  onClose,
+  convertTemp = (c) => (c !== undefined ? `${c.toFixed(1)}°C` : '--'),
+}: AssetDetailProps) {
   const [history, setHistory] = useState<AssetHistory | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -49,10 +54,7 @@ export default function AssetDetail({ asset, onClose }: AssetDetailProps) {
     <div className="bg-white rounded-lg shadow p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">{asset.asset_id}</h2>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-gray-100 rounded"
-        >
+        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
           <X className="w-5 h-5" />
         </button>
       </div>
@@ -60,9 +62,7 @@ export default function AssetDetail({ asset, onClose }: AssetDetailProps) {
       {/* State Badge */}
       <div className="mb-4">
         <span
-          className={`px-3 py-1 rounded-full text-white text-sm ${
-            stateColors[asset.state]
-          }`}
+          className={`px-3 py-1 rounded-full text-white text-sm ${stateColors[asset.state]}`}
         >
           {asset.state}
         </span>
@@ -88,7 +88,7 @@ export default function AssetDetail({ asset, onClose }: AssetDetailProps) {
         <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
           <Thermometer className="w-5 h-5 text-blue-500" />
           <div>
-            <p className="text-lg font-bold">{asset.temperature_c?.toFixed(1)}°C</p>
+            <p className="text-lg font-bold">{convertTemp(asset.temperature_c)}</p>
             <p className="text-xs text-gray-500">Temperature</p>
           </div>
         </div>
@@ -103,28 +103,20 @@ export default function AssetDetail({ asset, onClose }: AssetDetailProps) {
 
         <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
           <DoorOpen
-            className={`w-5 h-5 ${
-              asset.door_open ? 'text-orange-500' : 'text-gray-400'
-            }`}
+            className={`w-5 h-5 ${asset.door_open ? 'text-orange-500' : 'text-gray-400'}`}
           />
           <div>
-            <p className="text-lg font-bold">
-              {asset.door_open ? 'Open' : 'Closed'}
-            </p>
+            <p className="text-lg font-bold">{asset.door_open ? 'Open' : 'Closed'}</p>
             <p className="text-xs text-gray-500">Door</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
           <Power
-            className={`w-5 h-5 ${
-              asset.compressor_running ? 'text-green-500' : 'text-gray-400'
-            }`}
+            className={`w-5 h-5 ${asset.compressor_running ? 'text-green-500' : 'text-gray-400'}`}
           />
           <div>
-            <p className="text-lg font-bold">
-              {asset.compressor_running ? 'Running' : 'Off'}
-            </p>
+            <p className="text-lg font-bold">{asset.compressor_running ? 'Running' : 'Off'}</p>
             <p className="text-xs text-gray-500">Compressor</p>
           </div>
         </div>
@@ -157,11 +149,9 @@ export default function AssetDetail({ asset, onClose }: AssetDetailProps) {
           <History className="w-4 h-4 text-gray-500" />
           <span className="text-sm font-medium">Temperature History (6h)</span>
         </div>
-        
+
         {loadingHistory ? (
-          <div className="h-48 flex items-center justify-center text-gray-400">
-            Loading...
-          </div>
+          <div className="h-48 flex items-center justify-center text-gray-400">Loading...</div>
         ) : history && history.telemetry.length > 0 ? (
           <TemperatureChart data={history.telemetry} />
         ) : (
