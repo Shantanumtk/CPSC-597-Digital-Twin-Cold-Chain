@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# Cold Chain Digital Twin — Idempotent Destroy Script (with Phase 5 cleanup)
+# Cold Chain Digital Twin — Idempotent Destroy Script
 # =============================================================================
 # Tears down all resources in reverse order.
-# Handles ECR image cleanup, MCP Agent cleanup, and CloudWatch log group
-# pre-deletion to prevent Terraform destroy failures.
+# Handles ECR image cleanup and CloudWatch log group pre-deletion
+# to prevent Terraform destroy failures.
 # Safe to re-run — skips already-destroyed resources.
 # =============================================================================
 
@@ -23,12 +23,9 @@ DIM='\033[2m'
 NC='\033[0m'
 
 AWS_REGION="us-west-2"
-export AWS_DEFAULT_REGION="$AWS_REGION"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
 PROJECT="coldchain-digital-twin"
 NAMESPACE="coldchain"
-SSH_KEY="/Users/shantanu/Downloads/cpsc-597-key.pem"
-SSH_USER="ubuntu"
 
 ECR_REPOS=(
   "${PROJECT}-bridge"
@@ -44,7 +41,7 @@ STEP_NAMES=()
 STEP_STATUSES=()
 STEP_DETAILS=()
 
-TOTAL_STEPS=9
+TOTAL_STEPS=8
 CURRENT_STEP=0
 
 # =============================================================================
@@ -83,9 +80,9 @@ log_error() {
 print_summary_table() {
   echo ""
   echo -e "${BOLD}╔═══════════════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${BOLD}║                     DESTROY STATUS REPORT                            ║${NC}"
+  echo -e "${BOLD}║                     DESTROY STATUS REPORT                             ║${NC}"
   echo -e "${BOLD}╠════╦═══════════════════════════════╦════════╦═════════════════════════╣${NC}"
-  printf  "${BOLD}║ %-2s ║ %-29s ║ %-6s ║ %-23s ║${NC}\n" "#" "Step" "Status" "Detail"
+  printf  "${BOLD}║ %-2s ║ %-29s ║ %-6s ║ %-23s ║${NC}\n" "#" "Step" "Status" "Detail"    ║
   echo -e "${BOLD}╠════╬═══════════════════════════════╬════════╬═════════════════════════╣${NC}"
 
   for i in "${!STEP_NAMES[@]}"; do
@@ -134,7 +131,6 @@ confirm_destroy() {
   log_step "Confirm Destruction"
 
   echo -e "  ${RED}⚠️  WARNING: This will destroy ALL Cold Chain resources:${NC}"
-  echo -e "    • MCP Agent container on MQTT EC2"
   echo -e "    • Kubernetes deployments, services, configmaps, PVCs"
   echo -e "    • ECR repositories and ALL images"
   echo -e "    • CloudWatch log groups"
@@ -157,37 +153,7 @@ confirm_destroy() {
 }
 
 # =============================================================================
-# Step 2: Stop MCP Agent on MQTT EC2
-# =============================================================================
-destroy_mcp_agent() {
-  log_step "Stop MCP Agent on MQTT EC2"
-
-  # Get MQTT EC2 public IP
-  MQTT_IP=$(aws ec2 describe-instances \
-    --filters "Name=tag:Name,Values=${PROJECT}-mqtt-broker" "Name=instance-state-name,Values=running" \
-    --query "Reservations[0].Instances[0].PublicIpAddress" --output text 2>/dev/null || true)
-
-  if [ -z "$MQTT_IP" ] || [ "$MQTT_IP" = "None" ]; then
-    log_skip "MQTT EC2 not found or not running"
-    track_step "MCP Agent Cleanup" "skip" "EC2 not found"
-    return 0
-  fi
-
-  log_info "MQTT EC2: $MQTT_IP — stopping MCP Agent..."
-
-  ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${MQTT_IP} << 'REMOTE_EOF' 2>/dev/null || true
-docker stop mcp-agent 2>/dev/null && echo "Stopped mcp-agent" || echo "mcp-agent not running"
-docker rm mcp-agent 2>/dev/null || true
-docker rmi mcp-agent:latest 2>/dev/null || true
-rm -rf ~/mcp-agent/.env 2>/dev/null || true
-REMOTE_EOF
-
-  log_done "MCP Agent stopped and cleaned up"
-  track_step "MCP Agent Cleanup" "pass" "Container removed"
-}
-
-# =============================================================================
-# Step 3: Delete K8s Workloads & Namespace
+# Step 2: Delete K8s Workloads & Namespace
 # =============================================================================
 destroy_kubernetes() {
   log_step "Delete Kubernetes Resources"
@@ -226,9 +192,9 @@ destroy_kubernetes() {
     fi
   done
 
-  # Delete services (including Phase 5 NodePort services)
+  # Delete services (LoadBalancers take time to deprovision)
   log_info "Deleting services..."
-  for svc in state-engine dashboard kafka kafka-headless kafka-external redis redis-external redis-headless mqtt-kafka-bridge kafka-consumer; do
+  for svc in state-engine dashboard kafka kafka-headless redis redis-headless mqtt-kafka-bridge kafka-consumer; do
     if kubectl get svc "$svc" -n "$NAMESPACE" &>/dev/null 2>&1; then
       kubectl delete svc "$svc" -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
       log_done "Deleted svc/$svc"
@@ -236,9 +202,9 @@ destroy_kubernetes() {
     fi
   done
 
-  # Delete PVCs
+  # Delete PVCs (releases EBS volumes)
   log_info "Deleting PVCs..."
-  PVC_COUNT=$(kubectl get pvc -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+  PVC_COUNT=$(kubectl get pvc -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l || echo "0")
   if [ "$PVC_COUNT" -gt 0 ]; then
     kubectl delete pvc --all -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
     log_done "Deleted $PVC_COUNT PVCs"
@@ -274,7 +240,7 @@ destroy_kubernetes() {
 }
 
 # =============================================================================
-# Step 4: Wait for LoadBalancers to Deprovision
+# Step 3: Wait for LoadBalancers to Deprovision
 # =============================================================================
 wait_for_lb_cleanup() {
   log_step "Wait for LoadBalancer Cleanup"
@@ -288,7 +254,7 @@ wait_for_lb_cleanup() {
 }
 
 # =============================================================================
-# Step 5: Delete ALL ECR Images & Repositories
+# Step 4: Delete ALL ECR Images & Repositories
 # =============================================================================
 delete_ecr_images() {
   log_step "Delete ECR Repositories & All Images"
@@ -303,6 +269,7 @@ delete_ecr_images() {
       continue
     fi
 
+    # Batch delete all images (loop for repos with 100+ images)
     while true; do
       BATCH=$(aws ecr list-images \
         --repository-name "$repo" \
@@ -328,6 +295,7 @@ delete_ecr_images() {
       fi
     done
 
+    # Delete the repository itself
     aws ecr delete-repository \
       --repository-name "$repo" \
       --region "$AWS_REGION" \
@@ -345,7 +313,7 @@ delete_ecr_images() {
 }
 
 # =============================================================================
-# Step 6: Delete CloudWatch Log Groups
+# Step 5: Delete CloudWatch Log Groups
 # =============================================================================
 delete_log_groups() {
   log_step "Delete CloudWatch Log Groups"
@@ -353,9 +321,9 @@ delete_log_groups() {
   LOG_GROUPS=(
     "/aws/vpc/${PROJECT}-flow-logs"
     "/aws/eks/${PROJECT}-eks/cluster"
-    "/aws/ec2/${PROJECT}/mqtt-broker"
   )
 
+  # Dynamically find any additional log groups matching our project
   EXTRA_GROUPS=$(aws logs describe-log-groups \
     --log-group-name-prefix "/aws/" \
     --region "$AWS_REGION" \
@@ -404,7 +372,7 @@ delete_log_groups() {
 }
 
 # =============================================================================
-# Step 7: Terraform Destroy
+# Step 6: Terraform Destroy
 # =============================================================================
 destroy_terraform() {
   log_step "Terraform Destroy"
@@ -422,7 +390,7 @@ destroy_terraform() {
     terraform init
   fi
 
-  RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+  RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l || echo "0")
 
   if [ "$RESOURCE_COUNT" -eq 0 ]; then
     log_skip "No resources in Terraform state"
@@ -456,7 +424,7 @@ destroy_terraform() {
 }
 
 # =============================================================================
-# Step 8: Clean Kubeconfig
+# Step 7: Clean Kubeconfig
 # =============================================================================
 clean_kubeconfig() {
   log_step "Clean Stale Kubeconfig Context"
@@ -489,7 +457,7 @@ clean_kubeconfig() {
 }
 
 # =============================================================================
-# Step 9: Summary
+# Step 8: Summary
 # =============================================================================
 print_destroy_summary() {
   log_step "Destruction Complete"
@@ -513,20 +481,19 @@ main() {
   echo "  ╔═══════════════════════════════════════════════════════╗"
   echo "  ║      Cold Chain Digital Twin — Destroy Script         ║"
   echo "  ║                                                       ║"
-  echo "  ║   Tears down: MCP Agent │ EKS │ EC2 │ VPC │ ECR      ║"
-  echo "  ║   Preserves:  S3 state bucket                        ║"
+  echo "  ║   Tears down: EKS │ EC2 │ VPC │ ECR │ CloudWatch      ║"
+  echo "  ║   Preserves:  S3 state bucket                         ║"
   echo "  ╚═══════════════════════════════════════════════════════╝"
   echo -e "${NC}"
 
   confirm_destroy          # Step 1
-  destroy_mcp_agent        # Step 2  ← NEW
-  destroy_kubernetes       # Step 3
-  wait_for_lb_cleanup      # Step 4
-  delete_ecr_images        # Step 5
-  delete_log_groups        # Step 6
-  destroy_terraform        # Step 7
-  clean_kubeconfig         # Step 8
-  print_destroy_summary    # Step 9
+  destroy_kubernetes       # Step 2
+  wait_for_lb_cleanup      # Step 3
+  delete_ecr_images        # Step 4
+  delete_log_groups        # Step 5
+  destroy_terraform        # Step 6
+  clean_kubeconfig         # Step 7
+  print_destroy_summary    # Step 8
 }
 
 main "$@"

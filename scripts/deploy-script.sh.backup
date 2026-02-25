@@ -1,13 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# Cold Chain Digital Twin — Idempotent Deploy Script (with Phase 5 MCP Agent)
+# Cold Chain Digital Twin — Idempotent Deploy Script
 # =============================================================================
 # Every step checks if work is already done before executing.
 # Safe to re-run at any point — picks up where it left off.
-#
-# Usage:
-#   bash scripts/deploy-script.sh                          # Deploy without MCP Agent
-#   bash scripts/deploy-script.sh --anthropic-key sk-xxx   # Deploy with MCP Agent
 # =============================================================================
 
 set -euo pipefail
@@ -25,13 +21,10 @@ DIM='\033[2m'
 NC='\033[0m'
 
 AWS_REGION="us-west-2"
-export AWS_DEFAULT_REGION="$AWS_REGION"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 PROJECT="coldchain-digital-twin"
 NAMESPACE="coldchain"
-SSH_KEY="/Users/shantanu/Downloads/cpsc-597-key.pem"
-SSH_USER="ubuntu"  # Ubuntu AMI uses 'ubuntu', not 'ec2-user'
 
 # K8s deployment names
 SERVICES=("mqtt-kafka-bridge" "kafka-consumer" "state-engine" "dashboard")
@@ -47,22 +40,7 @@ STEP_NAMES=()
 STEP_STATUSES=()
 STEP_DETAILS=()
 
-# Parse flags
-ANTHROPIC_KEY=""
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --anthropic-key) ANTHROPIC_KEY="$2"; shift 2 ;;
-    --ssh-key)       SSH_KEY="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-
-# Calculate total steps (14 if MCP Agent, 13 if not)
-if [ -n "$ANTHROPIC_KEY" ]; then
-  TOTAL_STEPS=14
-else
-  TOTAL_STEPS=13
-fi
+TOTAL_STEPS=13
 CURRENT_STEP=0
 
 # =============================================================================
@@ -219,7 +197,6 @@ apply_terraform() {
   fi
 
   export MQTT_BROKER_IP=$(terraform output -raw mqtt_broker_public_ip)
-  export MQTT_BROKER_PRIVATE_IP=$(terraform output -raw mqtt_broker_private_ip)
   export MONGODB_PRIVATE_IP=$(terraform output -raw mongodb_private_ip)
   export EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "$PROJECT-eks")
 
@@ -489,6 +466,7 @@ deploy_app_services() {
     local svc_dir="${APP_SERVICES[$i]}"
     local deploy_name="${DEPLOY_NAMES[$i]}"
 
+    # Check if deployment already exists
     if kubectl get deployment "$deploy_name" -n "$NAMESPACE" &>/dev/null; then
       kubectl apply -f "k8s/${svc_dir}/"
       kubectl rollout restart deployment "$deploy_name" -n "$NAMESPACE"
@@ -537,6 +515,7 @@ deploy_dashboard() {
   docker tag dashboard:latest "${repo}:latest"
   docker push "${repo}:latest"
 
+  # Only restart if deployment already exists, otherwise just create
   if kubectl get deployment dashboard -n "$NAMESPACE" &>/dev/null; then
     kubectl apply -f k8s/dashboard/
     kubectl rollout restart deployment dashboard -n "$NAMESPACE"
@@ -552,211 +531,7 @@ deploy_dashboard() {
 }
 
 # =============================================================================
-# Step 13: Deploy MCP Agent (Phase 5) — NodePort + .env + Docker on MQTT EC2
-# =============================================================================
-deploy_mcp_agent() {
-  log_step "Deploy MCP Agent (Phase 5)"
-
-  if [ -z "$ANTHROPIC_KEY" ]; then
-    log_info "No --anthropic-key provided, skipping MCP Agent"
-    track_step "MCP Agent (Phase 5)" "skip" "No API key provided"
-    return 0
-  fi
-
-  # --- 13a: Create NodePort for Redis ---
-  log_info "Creating Redis NodePort service (30379)..."
-  cat <<'YAML' | kubectl apply -n "$NAMESPACE" -f -
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-external
-spec:
-  type: NodePort
-  selector:
-    app: redis
-  ports:
-    - port: 6379
-      targetPort: 6379
-      nodePort: 30379
-      protocol: TCP
-YAML
-  log_done "Redis NodePort 30379"
-
-  # --- 13b: Create NodePort for Kafka external listener ---
-  log_info "Creating Kafka external NodePort service (30092)..."
-
-  # Get EKS node private IP for Kafka advertised listener
-  EKS_NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-  log_info "EKS Node IP: $EKS_NODE_IP"
-
-  # Check if Kafka already has EXTERNAL listener configured
-  CURRENT_LISTENERS=$(kubectl get statefulset kafka -n "$NAMESPACE" \
-    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="KAFKA_LISTENERS")].value}' 2>/dev/null || echo "")
-
-  if echo "$CURRENT_LISTENERS" | grep -q "EXTERNAL"; then
-    log_skip "Kafka already has EXTERNAL listener"
-  else
-    log_info "Patching Kafka with EXTERNAL listener on port 9094..."
-    # The existing StatefulSet has:
-    #   KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-    #   KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-    #   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-    # We add EXTERNAL://:9094 for NodePort access
-    kubectl set env statefulset/kafka -n "$NAMESPACE" \
-      KAFKA_LISTENERS="PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094" \
-      KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://kafka:9092,EXTERNAL://${EKS_NODE_IP}:30092" \
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP="CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
-
-    log_info "Waiting for Kafka to restart with external listener..."
-    kubectl rollout status statefulset/kafka -n "$NAMESPACE" --timeout=180s
-  fi
-
-  # Create kafka-external NodePort service (idempotent via apply)
-  cat <<YAML | kubectl apply -n "$NAMESPACE" -f -
-apiVersion: v1
-kind: Service
-metadata:
-  name: kafka-external
-spec:
-  type: NodePort
-  selector:
-    app: kafka
-  ports:
-    - name: external
-      port: 9094
-      targetPort: 9094
-      nodePort: 30092
-      protocol: TCP
-YAML
-  log_done "Kafka external NodePort 30092"
-
-  # --- 13c: Security group rules ---
-  log_info "Adding security group rules (MQTT EC2 → EKS NodePorts)..."
-
-  MQTT_INSTANCE_ID=$(aws ec2 describe-instances \
-    --filters "Name=tag:Name,Values=${PROJECT}-mqtt-broker" "Name=instance-state-name,Values=running" \
-    --query "Reservations[0].Instances[0].InstanceId" --output text 2>/dev/null || true)
-
-  MQTT_SG=""
-  if [ -n "$MQTT_INSTANCE_ID" ] && [ "$MQTT_INSTANCE_ID" != "None" ]; then
-    MQTT_SG=$(aws ec2 describe-instances \
-      --instance-ids "$MQTT_INSTANCE_ID" \
-      --query "Reservations[0].Instances[0].SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
-  fi
-
-  EKS_NODE_SG=""
-  EKS_NODE_INSTANCE=$(kubectl get nodes -o jsonpath='{.items[0].spec.providerID}' 2>/dev/null | grep -o 'i-[a-z0-9]*' || true)
-  if [ -n "$EKS_NODE_INSTANCE" ]; then
-    EKS_NODE_SG=$(aws ec2 describe-instances \
-      --instance-ids "$EKS_NODE_INSTANCE" \
-      --query "Reservations[0].Instances[0].SecurityGroups[*].GroupId" --output text 2>/dev/null | awk '{print $1}' || true)
-  fi
-
-  if [ -n "$EKS_NODE_SG" ] && [ "$EKS_NODE_SG" != "None" ] && [ -n "$MQTT_SG" ] && [ "$MQTT_SG" != "None" ]; then
-    log_info "MQTT SG: $MQTT_SG → EKS Node SG: $EKS_NODE_SG"
-
-    aws ec2 authorize-security-group-ingress \
-      --group-id "$EKS_NODE_SG" \
-      --protocol tcp --port 30379 \
-      --source-group "$MQTT_SG" \
-      --description "MCP-Agent-Redis-NodePort" 2>/dev/null \
-      && log_done "SG rule: TCP 30379 (Redis)" \
-      || log_info "(Redis SG rule already exists)"
-
-    aws ec2 authorize-security-group-ingress \
-      --group-id "$EKS_NODE_SG" \
-      --protocol tcp --port 30092 \
-      --source-group "$MQTT_SG" \
-      --description "MCP-Agent-Kafka-NodePort" 2>/dev/null \
-      && log_done "SG rule: TCP 30092 (Kafka)" \
-      || log_info "(Kafka SG rule already exists)"
-  else
-    log_error "Could not auto-detect SGs. Manually add MQTT→EKS rules for 30379,30092"
-  fi
-
-  # Also allow MCP Agent port 8001 from anywhere (for external API access)
-  if [ -n "$MQTT_SG" ] && [ "$MQTT_SG" != "None" ]; then
-    aws ec2 authorize-security-group-ingress \
-      --group-id "$MQTT_SG" \
-      --protocol tcp --port 8001 \
-      --cidr "0.0.0.0/0" \
-      --description "MCP-Agent-API-Public" 2>/dev/null \
-      && log_done "SG rule: TCP 8001 (MCP Agent public)" \
-      || log_info "(MCP Agent 8001 SG rule already exists)"
-  fi
-
-  # --- 13d: Generate .env and deploy MCP Agent ---
-  log_info "Generating MCP Agent .env..."
-
-  ENV_FILE=$(mktemp)
-  cat > "$ENV_FILE" << ENVGEN
-ANTHROPIC_API_KEY=${ANTHROPIC_KEY}
-MONGO_URI=mongodb://${MONGODB_PRIVATE_IP}:27017
-MONGO_DB=coldchain
-REDIS_HOST=${EKS_NODE_IP}
-REDIS_PORT=30379
-KAFKA_BOOTSTRAP_SERVERS=${EKS_NODE_IP}:30092
-MQTT_BROKER=localhost
-MQTT_PORT=1883
-MCP_HOST=0.0.0.0
-MCP_PORT=8001
-ENVGEN
-
-  log_info "Uploading MCP Agent to MQTT EC2 (${MQTT_BROKER_IP})..."
-
-  # Ensure mcp-agent directory exists on MQTT EC2
-  ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${MQTT_BROKER_IP} "mkdir -p ~/mcp-agent" 2>/dev/null
-
-  # Upload agent code (scp contents, not nested dir)
-  scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r mcp-agent/* ${SSH_USER}@${MQTT_BROKER_IP}:~/mcp-agent/ 2>/dev/null
-  scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$ENV_FILE" ${SSH_USER}@${MQTT_BROKER_IP}:~/mcp-agent/.env 2>/dev/null
-  rm -f "$ENV_FILE"
-  log_done ".env and code uploaded"
-
-  # Build and run on MQTT EC2
-  log_info "Building and starting MCP Agent container..."
-  ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${MQTT_BROKER_IP} << 'REMOTE_EOF'
-set -e
-cd ~/mcp-agent
-
-echo "  Building MCP Agent image..."
-docker build -t mcp-agent:latest . 2>&1 | tail -3
-
-echo "  Stopping old container..."
-docker stop mcp-agent 2>/dev/null || true
-docker rm mcp-agent 2>/dev/null || true
-
-echo "  Starting MCP Agent with --network host..."
-docker run -d \
-  --name mcp-agent \
-  --network host \
-  --env-file .env \
-  --restart unless-stopped \
-  mcp-agent:latest
-
-sleep 3
-echo ""
-echo "  Container status:"
-docker ps --filter name=mcp-agent --format "table {{.Names}}\t{{.Status}}"
-echo ""
-echo "  Last 5 logs:"
-docker logs mcp-agent --tail 5
-REMOTE_EOF
-
-  log_done "MCP Agent running on ${MQTT_BROKER_IP}:8001"
-
-  # --- 13e: Verify connectivity ---
-  log_info "Verifying MCP Agent connectivity..."
-
-  HEALTH=$(ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${MQTT_BROKER_IP} \
-    "curl -s --max-time 5 http://localhost:8001/api/health" 2>/dev/null || echo '{"status":"unreachable"}')
-  log_info "Health: $HEALTH"
-
-  track_step "MCP Agent (Phase 5)" "pass" "Running on :8001"
-}
-
-# =============================================================================
-# Step 14 (or 13): Print Endpoints & Summary Table
+# Step 13: Print Endpoints & Summary Table
 # =============================================================================
 print_summary() {
   log_step "Deployment Complete"
@@ -768,6 +543,7 @@ print_summary() {
 
   track_step "Print Summary" "pass" "All endpoints ready"
 
+  # ── Endpoints ──
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BOLD}║                        SERVICE ENDPOINTS                            ║${NC}"
@@ -776,30 +552,9 @@ print_summary() {
   printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "State Engine API" "http://${STATE_URL}"
   printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "MQTT Broker" "${MQTT_BROKER_IP}:1883"
   printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "MongoDB (private)" "${MONGODB_PRIVATE_IP}:27017"
-
-  if [ -n "$ANTHROPIC_KEY" ]; then
-    printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "MCP Agent" "http://${MQTT_BROKER_IP}:8001"
-    printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "MCP Query API" "POST http://${MQTT_BROKER_IP}:8001/api/chat/query"
-    printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "MCP Sim API" "POST http://${MQTT_BROKER_IP}:8001/api/chat/simulate"
-  fi
-
   echo -e "${BOLD}╚═══════════════════╩════════════════════════════════════════════════════╝${NC}"
 
-  if [ -n "$ANTHROPIC_KEY" ]; then
-    echo ""
-    echo -e "  ${BOLD}MCP Agent Architecture:${NC}"
-    echo "  MQTT EC2 (${MQTT_BROKER_IP} / ${MQTT_BROKER_PRIVATE_IP})"
-    echo "  ├── Mosquitto broker (:1883)"
-    echo "  ├── Sensor simulator (docker-compose)"
-    echo "  └── MCP Agent (FastAPI :8001)"
-    echo "      ├── → MQTT (localhost:1883)              ✅"
-    echo "      ├── → MongoDB (${MONGODB_PRIVATE_IP}:27017)   ✅ same VPC"
-    EKS_NODE_IP_DISPLAY=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "?")
-    echo "      ├── → Redis (${EKS_NODE_IP_DISPLAY}:30379)    ✅ NodePort"
-    echo "      ├── → Kafka (${EKS_NODE_IP_DISPLAY}:30092)    ✅ NodePort"
-    echo "      └── → docker-compose (localhost)          ✅"
-  fi
-
+  # ── Pod Status ──
   echo ""
   echo -e "${BOLD}Pod Status:${NC}"
   kubectl get pods -n "$NAMESPACE" \
@@ -812,6 +567,7 @@ print_summary() {
     fi
   done
 
+  # ── Step Summary Table ──
   print_summary_table
 }
 
@@ -824,17 +580,9 @@ main() {
   echo "  ║       Cold Chain Digital Twin — Deploy Script         ║"
   echo "  ║                                                       ║"
   echo "  ║   MQTT → Kafka → MongoDB/Redis → FastAPI → Next.js   ║"
-  echo "  ║              + MCP Agent (Phase 5)                    ║"
   echo "  ║                 on AWS EKS                            ║"
   echo "  ╚═══════════════════════════════════════════════════════╝"
   echo -e "${NC}"
-
-  if [ -n "$ANTHROPIC_KEY" ]; then
-    echo -e "  ${GREEN}MCP Agent: ENABLED (--anthropic-key provided)${NC}"
-  else
-    echo -e "  ${YELLOW}MCP Agent: DISABLED (pass --anthropic-key to enable)${NC}"
-  fi
-  echo ""
 
   ensure_state_bucket       # Step  1
   apply_terraform           # Step  2
@@ -848,12 +596,7 @@ main() {
   deploy_stateful_services  # Step 10
   deploy_app_services       # Step 11
   deploy_dashboard          # Step 12
-
-  if [ -n "$ANTHROPIC_KEY" ]; then
-    deploy_mcp_agent        # Step 13
-  fi
-
-  print_summary             # Step 13/14
+  print_summary             # Step 13
 }
 
 main "$@"
