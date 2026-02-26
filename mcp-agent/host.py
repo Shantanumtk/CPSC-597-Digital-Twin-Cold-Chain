@@ -44,7 +44,7 @@ class ChatResponse(BaseModel):
     conversation_id: str | None = None
 
 
-# Simple in-memory conversation store
+# Simple in-memory conversation store (query agent only)
 conversations: dict[str, list] = {}
 
 
@@ -77,30 +77,23 @@ async def chat_query(request: ChatRequest):
 
     history.append({"role": "user", "content": request.message})
     history.append({"role": "assistant", "content": response_text})
-    conversations[conv_id] = history[-20:]
+    conversations[conv_id] = history[-10:]
 
     return ChatResponse(response=response_text, conversation_id=conv_id)
 
 
 @app.post("/api/chat/simulate", response_model=ChatResponse)
 async def chat_simulate(request: ChatRequest):
-    """Simulation controller — manipulate the sensor simulator."""
+    """Simulation controller — each command is stateless for reliable tool execution."""
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
 
-    conv_id = request.conversation_id or "default-sim"
-    history = conversations.get(conv_id, [])
-
     try:
-        response_text = process_command(request.message, history.copy())
+        response_text = process_command(request.message, [])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Simulator agent error: {str(e)}")
 
-    history.append({"role": "user", "content": request.message})
-    history.append({"role": "assistant", "content": response_text})
-    conversations[conv_id] = history[-20:]
-
-    return ChatResponse(response=response_text, conversation_id=conv_id)
+    return ChatResponse(response=response_text, conversation_id=None)
 
 
 if __name__ == "__main__":
