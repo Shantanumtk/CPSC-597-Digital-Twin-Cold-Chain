@@ -700,7 +700,7 @@ YAML
   cat > "$ENV_FILE" << ENVGEN
 OPENAI_API_KEY=${ANTHROPIC_KEY}
 OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-LLM_MODEL=gemini-2.0-flash
+LLM_MODEL=gemini-2.5-flash
 MONGO_URI=mongodb://${MONGODB_PRIVATE_IP}:27017
 MONGO_DB=coldchain
 REDIS_HOST=${EKS_NODE_IP}
@@ -783,8 +783,8 @@ print_summary() {
 
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${BOLD}║                        SERVICE ENDPOINTS                            ║${NC}"
-  echo -e "${BOLD}╠═══════════════════╦════════════════════════════════════════════════════╣${NC}"
+  echo -e "${BOLD}║                        SERVICE ENDPOINTS                             ║${NC}"
+  echo -e "${BOLD}╠═══════════════════╦══════════════════════════════════════════════════╣${NC}"
   printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "Dashboard" "http://${DASH_URL}"
   printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "State Engine API" "http://${STATE_URL}"
   printf  "║ %-17s ║ ${GREEN}%-48s${NC} ║\n" "MQTT Broker" "${MQTT_BROKER_IP}:1883"
@@ -836,7 +836,7 @@ main() {
   echo "  ╔═══════════════════════════════════════════════════════╗"
   echo "  ║       Cold Chain Digital Twin — Deploy Script         ║"
   echo "  ║                                                       ║"
-  echo "  ║   MQTT → Kafka → MongoDB/Redis → FastAPI → Next.js   ║"
+  echo "  ║   MQTT → Kafka → MongoDB/Redis → FastAPI → Next.js    ║"
   echo "  ║              + MCP Agent (Phase 5)                    ║"
   echo "  ║                 on AWS EKS                            ║"
   echo "  ╚═══════════════════════════════════════════════════════╝"

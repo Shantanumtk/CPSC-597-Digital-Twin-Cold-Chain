@@ -505,6 +505,10 @@ print_destroy_summary() {
   print_summary_table
 }
 
+delete_aws_log(){
+  aws logs delete-log-group --log-group-name /aws/vpc/coldchain-digital-twin-flow-logs --region us-west-2
+}
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -526,6 +530,7 @@ main() {
   delete_log_groups        # Step 6
   destroy_terraform        # Step 7
   clean_kubeconfig         # Step 8
+  delete_aws_log            # Step 8.5 ← NEW
   print_destroy_summary    # Step 9
 }
 
